@@ -16,7 +16,7 @@ GameObject:
   - component: {fileID: 2096994006689809020}
   - component: {fileID: 8103655118027137614}
   m_Layer: 0
-  m_Name: DroneBase
+  m_Name: DroneG08
   m_TagString: Player
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
