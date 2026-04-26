@@ -102,7 +102,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_BrainParameters:
-    VectorObservationSize: 0
+    VectorObservationSize: 3
     NumStackedVectorObservations: 4
     m_ActionSpec:
       m_NumContinuousActions: 1
@@ -153,7 +153,7 @@ MonoBehaviour:
   MaxStep: 0
   displayName: Unknown
   selectedColor: 0
-  baseDroneSpeed: 2
+  baseDroneSpeed: 1
   startingLoc: {fileID: 0}
   debugMode: 1
   bodyBack: {fileID: 4436367317815418273}

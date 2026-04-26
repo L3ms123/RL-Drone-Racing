@@ -35,23 +35,31 @@ public class RaceAgentG08 : RaceAgentBase
 
     public override void OnEpisodeBegin()
     {
-        // ADD YOUR CODE HERE
-        // ...
-        
+        finishLine = false;
+        checkpoint = false;
+
         // *********** DO NOT TOUCH THIS *************************************
         currentStep = 0;
-        
+
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
         transform.position = startingLoc.position;
         transform.rotation = startingLoc.rotation;
     }
 
+    public override void CollectObservations(VectorSensor sensor)
+    {
+        // Local-frame velocity. Behavior Parameters Space Size must be 3.
+        sensor.AddObservation(transform.InverseTransformDirection(rb.linearVelocity));
+    }
+
     private void OnCollisionEnter(Collision collision)
     {
         if (collision.gameObject.CompareTag("track"))
         {
-            Debug.Log("Hit!");
+            // negative reward if the agent collides
+            AddReward(-1.0f);
+            EndEpisode();
         }
     }
 
@@ -61,13 +69,17 @@ public class RaceAgentG08 : RaceAgentBase
         {
             checkpoint = false;
             finishLine = true;
+            // positive reward if it reaches the finish line
+            AddReward(2.0f);
             return;
         }
-        
+
         if (other.gameObject.CompareTag("checkpoint"))
         {
             finishLine = false;
             checkpoint = true;
+            // positive reward if it reaches a checkpoint
+            AddReward(1.0f);
         }
     }
     
@@ -107,13 +119,19 @@ public class RaceAgentG08 : RaceAgentBase
         }
 
         currentStep++;
+
+        // reward forward speed, small step penalty so it doesn't stall.
+        float forwardSpeed = Vector3.Dot(rb.linearVelocity, transform.forward);
+        AddReward(0.001f * forwardSpeed);
+        AddReward(-0.0005f);
+
         if (MaxStep > 0 && currentStep >= MaxStep -1)
         {
             // MaxStep is defined in the editor in the main agent script component.
             // When MaxStep is 0, it means the episode never ends.
             // We use the currentStep internal cariable to perform actions just before the episode ends.
         }
-        
+
         // Move the agent using the actions predicted by the policy
         MoveAgent(actions.ContinuousActions, actions.DiscreteActions);
     }
