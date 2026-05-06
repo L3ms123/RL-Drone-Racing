@@ -58,7 +58,7 @@ public class RaceAgentG08 : RaceAgentBase
         if (collision.gameObject.CompareTag("track"))
         {
             // negative reward if the agent collides
-            AddReward(-1.0f);
+            AddReward(-0.2f);
             EndEpisode();
         }
     }
@@ -70,7 +70,7 @@ public class RaceAgentG08 : RaceAgentBase
             checkpoint = false;
             finishLine = true;
             // positive reward if it reaches the finish line
-            AddReward(2.0f);
+            AddReward(0.5f);
             return;
         }
 
@@ -79,7 +79,7 @@ public class RaceAgentG08 : RaceAgentBase
             finishLine = false;
             checkpoint = true;
             // positive reward if it reaches a checkpoint
-            AddReward(1.0f);
+            AddReward(0.1f);
         }
     }
     
