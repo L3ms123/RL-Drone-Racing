@@ -2,14 +2,16 @@ using UnityEngine;
 using Unity.MLAgents.Sensors;
 using Unity.MLAgents.Actuators;
 
-public class RaceAgentG08 : RaceAgentBase
+public class RaceAgentG08_Rally : RaceAgentBase
 {
-    void Start()
-    {
-        // ADD YOUR CODE HERE
-        // ...
-        
-        // *********** DO NOT TOUCH THIS *************************************
+    private Transform[] checkpoints;
+    private int nextCheckpointIndex = 0;
+    private float previousDistanceToCheckpoint = 0f;
+
+    private int noProgressSteps = 0;
+
+    void Start(){
+    // *********** DO NOT TOUCH THIS *************************************
         ApplyMaterials();
         
         if (debugMode)
@@ -31,6 +33,19 @@ public class RaceAgentG08 : RaceAgentBase
 
         stopDrone = false;
         checkpoint = false;
+        FindCheckpoints();
+    }
+
+    private void FindCheckpoints()
+    {
+        GameObject[] checkpointObjects = GameObject.FindGameObjectsWithTag("checkpoint");
+
+        checkpoints = new Transform[checkpointObjects.Length];
+
+        for (int i = 0; i < checkpointObjects.Length; i++)
+            checkpoints[i] = checkpointObjects[i].transform;
+
+        System.Array.Sort(checkpoints, (a, b) => a.name.CompareTo(b.name));
     }
 
     public override void OnEpisodeBegin()
@@ -38,27 +53,52 @@ public class RaceAgentG08 : RaceAgentBase
         finishLine = false;
         checkpoint = false;
 
-        // *********** DO NOT TOUCH THIS *************************************
+        nextCheckpointIndex = 0;
+        noProgressSteps = 0;
         currentStep = 0;
 
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
+
         transform.position = startingLoc.position;
         transform.rotation = startingLoc.rotation;
+
+        if (checkpoints != null && checkpoints.Length > 0)
+        {
+            previousDistanceToCheckpoint = Vector3.Distance(
+                transform.position,
+                checkpoints[nextCheckpointIndex].position
+            );
+        }
     }
+    
+    
 
     public override void CollectObservations(VectorSensor sensor)
     {
-        // Local-frame velocity. Behavior Parameters Space Size must be 3.
-        sensor.AddObservation(transform.InverseTransformDirection(rb.linearVelocity));
+        // change behavior parameters space size to 9
+        Vector3 localVelocity = transform.InverseTransformDirection(rb.linearVelocity);
+        sensor.AddObservation(localVelocity);
+
+        float frontWall = WallDistance(transform.forward, 6f);
+        float leftWall = WallDistance(Quaternion.Euler(0, -35, 0) * transform.forward, 6f);
+        float rightWall = WallDistance(Quaternion.Euler(0, 35, 0) * transform.forward, 6f);
+
+        sensor.AddObservation(1f - (frontWall / 6f));
+        sensor.AddObservation(1f - (leftWall / 6f));
+        sensor.AddObservation(1f - (rightWall / 6f));
+
+        Vector3 dirToCheckpoint =
+            (checkpoints[nextCheckpointIndex].position - transform.position).normalized;
+
+        sensor.AddObservation(transform.InverseTransformDirection(dirToCheckpoint));
     }
 
     private void OnCollisionEnter(Collision collision)
     {
         if (collision.gameObject.CompareTag("track"))
         {
-            // negative reward if the agent collides
-            AddReward(-0.2f);
+            AddReward(-1.0f);
             EndEpisode();
         }
     }
@@ -67,48 +107,67 @@ public class RaceAgentG08 : RaceAgentBase
     {
         if (other.gameObject.CompareTag("finishLine"))
         {
-            checkpoint = false;
-            finishLine = true;
-            // positive reward if it reaches the finish line
-            AddReward(0.5f);
+            AddReward(5.0f);
+            EndEpisode();
             return;
         }
 
         if (other.gameObject.CompareTag("checkpoint"))
         {
-            finishLine = false;
-            checkpoint = true;
-            // positive reward if it reaches a checkpoint
-            AddReward(0.1f);
+            if (other.transform == checkpoints[nextCheckpointIndex])
+            {
+                AddReward(1.5f);
+
+                nextCheckpointIndex++;
+
+                if (nextCheckpointIndex >= checkpoints.Length)
+                    nextCheckpointIndex = 0;
+
+                previousDistanceToCheckpoint = Vector3.Distance(
+                    transform.position,
+                    checkpoints[nextCheckpointIndex].position
+                );
+
+                noProgressSteps = 0;
+            }
+            else
+            {
+                AddReward(-0.5f);
+            }
         }
     }
-    
+
+    private float WallDistance(Vector3 direction, float maxDistance)
+    {
+        RaycastHit hit;
+        Vector3 origin = transform.position + Vector3.up * 0.25f;
+
+        if (Physics.Raycast(origin, direction, out hit, maxDistance))
+            return hit.distance;
+
+        return maxDistance;
+    }
+
     public void MoveAgent(ActionSegment<float> contAct, ActionSegment<int> disAct)
     {
-        var dirToGo = Vector3.zero;
-        var rotateDir = Vector3.zero;
+        float speedInput = Mathf.Clamp01(contAct[0]);
 
-        var speed = contAct[0];
-        var actionTurn = disAct[0];
+        Vector3 rotateDir = Vector3.zero;
 
-        // Looking if the agent has to turn left or right
-        switch (actionTurn)
+        switch (disAct[0])
         {
-            case 1: // Turn right
-                rotateDir = transform.up * 1f;
-                break;
-            case 2: // Turn left
-                rotateDir = transform.up * -1f;
-                break;
+            case 1: rotateDir = transform.up; break;
+            case 2: rotateDir = -transform.up; break;
         }
 
-        dirToGo = transform.forward;
+        transform.Rotate(rotateDir, 180f * Time.fixedDeltaTime);
 
-        // Apply the actions to the agent
-        transform.Rotate(rotateDir, Time.fixedDeltaTime * 150f);
-        rb.AddForce(dirToGo * baseDroneSpeed * speed, ForceMode.VelocityChange);
+        rb.AddForce(
+            transform.forward * baseDroneSpeed * speedInput,
+            ForceMode.VelocityChange
+        );
     }
-    
+
     public override void OnActionReceived(ActionBuffers actions)
     {
         if (raceManager != null && (!raceManager.IsRaceActive || stopDrone))
@@ -120,38 +179,54 @@ public class RaceAgentG08 : RaceAgentBase
 
         currentStep++;
 
-        // reward forward speed, small step penalty so it doesn't stall.
-        float forwardSpeed = Vector3.Dot(rb.linearVelocity, transform.forward);
-        AddReward(0.001f * forwardSpeed);
-        AddReward(-0.0005f);
+        // pequeña penalización por tiempo
+        AddReward(-0.001f);
 
-        if (MaxStep > 0 && currentStep >= MaxStep -1)
+        // PROGRESO HACIA CHECKPOINT
+        Vector3 target = checkpoints[nextCheckpointIndex].position;
+        float currentDistance = Vector3.Distance(transform.position, target);
+
+        float progress = previousDistanceToCheckpoint - currentDistance;
+
+        AddReward(progress * 0.02f);
+
+        previousDistanceToCheckpoint = currentDistance;
+
+        // DETECCIÓN DE ESTANCAMIENTO
+        if (progress < 0.0001f)
+            noProgressSteps++;
+        else
+            noProgressSteps = 0;
+
+        if (noProgressSteps > 200)
         {
-            // MaxStep is defined in the editor in the main agent script component.
-            // When MaxStep is 0, it means the episode never ends.
-            // We use the currentStep internal cariable to perform actions just before the episode ends.
+            AddReward(-1.0f);
+            EndEpisode();
+            return;
         }
 
-        // Move the agent using the actions predicted by the policy
+        // LIMITE DE EPISODIO
+        if (MaxStep > 0 && currentStep >= MaxStep)
+        {
+            EndEpisode();
+            return;
+        }
+
         MoveAgent(actions.ContinuousActions, actions.DiscreteActions);
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
     {
-        var discreteActionsOut = actionsOut.DiscreteActions;
-        var continuousActionsOut = actionsOut.ContinuousActions;
+        var continuous = actionsOut.ContinuousActions;
+        var discrete = actionsOut.DiscreteActions;
 
-        // Speed
-        continuousActionsOut[0] = Input.GetAxis("Vertical");
+        continuous[0] = Mathf.Clamp01(Input.GetAxis("Vertical"));
 
-        // Left / Right actions
+        discrete[0] = 0;
+
         if (Input.GetKey(KeyCode.D))
-        {
-            discreteActionsOut[0] = 1;
-        }
+            discrete[0] = 1;
         else if (Input.GetKey(KeyCode.A))
-        {
-            discreteActionsOut[0] = 2;
-        }
+            discrete[0] = 2;
     }
 }
